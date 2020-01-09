@@ -1,12 +1,15 @@
 from cv2 import cv2 as cv
 import pygame
-import numpy as np
+from ToolPicker import ToolPicker
+from Eraser import Eraser
 from color_picker import (
     draw_color_picker,
     get_primary_color,
     get_secondary_color,
     check_picked_color,
 )
+
+import subprocess
 
 
 def cvimage_to_pygame(image):
@@ -17,14 +20,34 @@ def cvimage_to_pygame(image):
 
 pygame.init()
 
-image = cv.imread("test.jpg")
-image_rgb = cv.cvtColor(image, cv.COLOR_RGB2BGR)
 
-cv.rectangle(image, (0, 0), (50, 50), (0, 0, 0), -1)
+def get_image(file_path=None):
+    try:
+        if file_path is None:
+            file_path = subprocess.check_output(["zenity", "--file-selection"])
+            file_path = file_path.decode("utf8").replace("\n", "")
+        image = cv.imread(file_path)
+        return cv.cvtColor(image, cv.COLOR_RGB2BGR)
+    except subprocess.CalledProcessError:
+        pass
+
+
+def save_frame(frame):
+    try:
+        file_path = subprocess.check_output(
+            ["zenity", "--file-selection", "--save", "--confirm-overwrite"]
+        )
+        file_path = file_path.decode("utf8").replace("\n", "")
+        frame_to_be_saved = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+        cv.imwrite(file_path, frame_to_be_saved)
+    except subprocess.CalledProcessError:
+        pass
+
+
+image_rgb = get_image("test.jpg")
 
 gameDisplay = pygame.display.set_mode((1280, 800), pygame.RESIZABLE)
 pygame.display.set_caption("PINP - PINP Is Not msPaint")
-gameDisplay.fill((128, 128, 128))
 
 drawing = False
 last_pos = (0, 0)
@@ -51,19 +74,34 @@ def pencil_events(event):
         drawing = False
 
     if drawing:
-        cv.line(image_rgb, last_pos, event.pos, last_color, 1)
+        last_x, last_y = last_pos
+        x, y = event.pos
+
+        # TODO: replace these number with canvas margin
+        last_x -= 83
+        last_y -= 3
+        x -= 83
+        y -= 3
+        cv.line(image_rgb, (last_x, last_y), (x, y), last_color, 1)
         last_pos = event.pos
 
 
-def recursive_draw(pos, original_color, color):
+def recursive_draw(pos, color):
     global image_rgb
     x, y = pos
+    # TODO: replace these number with canvas margin
+    x -= 83
+    y -= 3
 
     theStack = [(x, y)]
 
     height, width, _ = image_rgb.shape
 
-    original_color = [original_color[0], original_color[1], original_color[2]]
+    try:
+        original_color = [image_rgb[y][x][0], image_rgb[y][x][1], image_rgb[y][x][2]]
+    except IndexError:
+        return
+
     color = [color[0], color[1], color[2]]
 
     while len(theStack) > 0:
@@ -90,19 +128,30 @@ def recursive_draw(pos, original_color, color):
 def fill_events(event):
 
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-        original_color = gameDisplay.get_at(event.pos)
-        recursive_draw(event.pos, original_color, get_primary_color())
+        recursive_draw(event.pos, get_primary_color())
 
     if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-        original_color = gameDisplay.get_at(event.pos)
-        recursive_draw(event.pos, original_color, get_secondary_color())
+        recursive_draw(event.pos, get_secondary_color())
 
 
 while True:
 
+    gameDisplay.fill((128, 128, 128))
+
+    draw_color_picker(gameDisplay)
+    eraser = Eraser(gameDisplay)
+    tool_picker = ToolPicker(gameDisplay, [eraser])
+
     for event in pygame.event.get():
 
         try:
+
+            # Ctrl + O
+            if event.type == pygame.KEYDOWN and event.unicode == "\x0f": 
+                image_rgb = get_image()
+            # Ctrl + S
+            if event.type == pygame.KEYDOWN and event.unicode == "\x13":
+                save_frame(image_rgb)
 
             if event.type == pygame.KEYDOWN and event.key == 49:
                 tool = PENCIL
@@ -128,6 +177,12 @@ while True:
                 fill_events(event)
 
             check_picked_color(event)
+
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                # TODO Assign according the functionality to the cursor
+                # according to the tool selected
+                tool_picker.check_picked_tool(event)
+
         except AttributeError:
             pass
 
@@ -135,27 +190,48 @@ while True:
             pygame.quit()
             quit()
 
-    gameDisplay.blit(cvimage_to_pygame(image_rgb), (3, 3))
 
     # TODO: this need to be dynamic
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (0, 0, 3, 3), 0)
-    pygame.draw.rect(gameDisplay, (255, 255, 255), (1, 1, 2, 2), 0)
+    left_margin = 83
 
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (643, 0, 3, 3), 0)
-    pygame.draw.rect(gameDisplay, (255, 255, 255), (644, 1, 2, 2), 0)
+    gameDisplay.blit(cvimage_to_pygame(image_rgb), (left_margin, 3))
 
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (0, 403, 3, 3), 0)
-    pygame.draw.rect(gameDisplay, (255, 255, 255), (1, 404, 2, 2), 0)
+    height, width, _ = image_rgb.shape
 
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (323, 0, 3, 3), 0)
-    pygame.draw.rect(gameDisplay, (255, 255, 255), (324, 1, 2, 2), 0)
+    pygame.draw.rect(gameDisplay, (28, 36, 56), (left_margin - 3, 0, 3, 3), 0)
+    pygame.draw.rect(gameDisplay, (255, 255, 255), (left_margin - 2, 1, 2, 2), 0)
 
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (0, 203, 3, 3), 0)
-    pygame.draw.rect(gameDisplay, (255, 255, 255), (1, 204, 2, 2), 0)
+    pygame.draw.rect(gameDisplay, (28, 36, 56), (width + left_margin, 0, 3, 3), 0)
+    pygame.draw.rect(
+        gameDisplay, (255, 255, 255), (width + left_margin + 1, 1, 2, 2), 0
+    )
 
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (643, 403, 3, 3), 0)
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (643, 203, 3, 3), 0)
-    pygame.draw.rect(gameDisplay, (28, 36, 56), (323, 403, 3, 3), 0)
+    pygame.draw.rect(gameDisplay, (28, 36, 56), (left_margin - 3, height + 3, 3, 3), 0)
+    pygame.draw.rect(
+        gameDisplay, (255, 255, 255), (left_margin - 2, height + 3 + 1, 2, 2), 0
+    )
+
+    pygame.draw.rect(gameDisplay, (28, 36, 56), (width // 2 + left_margin, 0, 3, 3), 0)
+    pygame.draw.rect(
+        gameDisplay, (255, 255, 255), (width // 2 + left_margin + 1, 1, 2, 2), 0
+    )
+
+    pygame.draw.rect(
+        gameDisplay, (28, 36, 56), (left_margin - 3, height // 2 + 3, 3, 3), 0
+    )
+    pygame.draw.rect(
+        gameDisplay, (255, 255, 255), (left_margin - 2, height // 2 + 3 + 1, 2, 2), 0
+    )
+
+    pygame.draw.rect(
+        gameDisplay, (28, 36, 56), (width + left_margin, height + 3, 3, 3), 0
+    )
+    pygame.draw.rect(
+        gameDisplay, (28, 36, 56), (width + left_margin, height // 2 + 3, 3, 3), 0
+    )
+    pygame.draw.rect(
+        gameDisplay, (28, 36, 56), (width // 2 + left_margin, height + 3, 3, 3), 0
+    )
 
     draw_color_picker(gameDisplay)
 
